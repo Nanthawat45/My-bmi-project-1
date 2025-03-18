@@ -1,51 +1,45 @@
-name: 'build and deploy production'
+name: Deploy to GitHub Pages
 
 on:
   push:
-    tags:
-      - 'v1000'
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  build-production-job:
+  build-deploy:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Set nodejs verstion to 18.x
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2: Setup Node.js (using Node 18 for modern support)
+      - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18.x'
-          cache: 'npm'
-      
-      - run: npm ci
+          node-version: "18"
 
-      - name: Run build production (create dist folder)
+      # Step 3: Install Dependencies
+      - name: Install Dependencies
+        run: npm install
+
+      # Step 4: Build the project (works for React + Vite)
+      - name: Build project
         run: npm run build
-    
-      - name: Upload dist folder artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: dist-production
-          path: dist
 
-  deploy-to-production:
-    needs: build-production-job
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download dist folder artifacts
-        uses: actions/download-artifact@v3
+      # Step 5: Debug build directory (optional step for troubleshooting)
+      - name: Debug build directory
+        run: ls -la ./dist
+
+      # Step 6: Debug Node.js version (optional step for troubleshooting)
+      - name: Debug Node.js version
+        run: node -v
+
+      # Step 7: Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
         with:
-            name: dist-production
-            path: dist
-        
-      - run: ls dist
-      # ให้ deploy เอง เช่น ssh
-      
-      - uses: actions/checkout@v4
-      
-      - name: publish vue to github pages
-        uses: SerhiiKa/VuePagesAction@1.0.4
-        with:
-            username: ${{ github.actor }} #codingthailand
-            reponame: ${{ github.event.repository.name }}  #vue-github-app
-            token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
