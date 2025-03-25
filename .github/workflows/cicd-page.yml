@@ -1,32 +1,53 @@
-name: 'build and deploy react app'
+name: 'build and deploy production'
 
 on:
   push:
-    branches: 
-      - main
+    tags:
+      - '*'
 
 jobs:
-  build-and-deploy:
+  release-docker-image-job:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry (GHCR)
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u nanthawat45 --password-stdin
 
-      - name: Build Docker Image
-        run: docker build -t ghcr.io/nanthawat45/${{ github.event.repository.name }}:latest .
+      - name: Extract tag name
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
-      - name: Verify React Build Output
-        run: |
-          CONTAINER_ID=$(docker create ghcr.io/nanthawat45/${{ github.event.repository.name }}:latest)
-          docker cp $CONTAINER_ID:/usr/share/nginx/html ./dist
-          docker rm -v $CONTAINER_ID
-          ls -la ./dist
+      - name: Verify extracted tag
+        run: echo "Using TAG_NAME=${{ env.TAG_NAME }}"
 
-      - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
+      - name: Build and push Docker image
+        uses: mr-smithers-excellent/docker-build-push@v6
         with:
-          branch: gh-pages
-          folder: dist
+          image: my-bmi-app
+          registry: ghcr.io/nanthawat45
+          username: nanthawat45
+          password: ${{ secrets.GITHUB_TOKEN }}
+          tags: ${{ env.TAG_NAME }}
+
+  auto-deploy-docker-job:
+    needs: release-docker-image-job
+    runs-on: ubuntu-latest
+    env:
+      CONTAINER_NAME: 'my-bmi-app'
+    steps:
+      - name: Extract tag name again (ensure env variable is set)
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Deploy via SSH with Password
+        run: |
+          sshpass -p '${{ secrets.SSH_PASSWORD }}' ssh -o StrictHostKeyChecking=no root@167.99.74.98 << 'EOF'
+            docker logout ghcr.io
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u nanthawat45 --password-stdin
+            docker rm -f ${{ env.CONTAINER_NAME }} || true
+            docker pull ghcr.io/nanthawat45/my-bmi-app:${{ env.TAG_NAME }}
+            docker run --restart=always -d --pull always --name ${{ env.CONTAINER_NAME }} -p 9006:80 ghcr.io/nanthawat45/my-bmi-app:${{ env.TAG_NAME }}
+          EOF
